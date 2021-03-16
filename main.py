@@ -18,7 +18,7 @@ from datetime import datetime
 POLICY_MAX_CHARACTER_SIZE = 6144
 ROLE_NAME = 'SDP_NameResolver'
 
-new_aws_accounts = ["123456789123"]
+new_aws_accounts = ["333456789123", "123476789122", "122276789123", "122276789111"]
 
 
 def print_json(text):
@@ -41,23 +41,26 @@ def remove_oldest_policy_version(aws, policy_arn):
         print(f'Policy has only {len(response["Versions"])} policy versions. None has to be removed.')
         return False
 
-    oldest_policy_version = datetime.now().isoformat() # Setting the 
+    oldest_policy_version = datetime.now().isoformat() # Setting the oldest time to the current time
 
-    for idx, policy_version in enumerate(response["Versions"]):
+    for policy_version in response["Versions"]:
 
-        if policy_version["CreateDate"].isoformat() < oldest_policy_version:
+        policy_version_createdate = policy_version["CreateDate"].isoformat() # The exact time when the policy version was created
 
-            if policy_version["IsDefaultVersion"]: # skipping if the policy version it is the default version
+        if policy_version_createdate < oldest_policy_version:
+
+            if policy_version["IsDefaultVersion"]: # skipping if the policy version is the default version
                 continue
             
-            oldest_policy_version = policy_version["CreateDate"].isoformat()
-            policy_to_remove = policy_version
+            oldest_policy_version = policy_version_createdate
+            policy_to_remove = policy_version["VersionId"]
     
-    response = aws.iam_delete_policy_version(policy_arn, policy_to_remove["VersionId"])
+    response = aws.iam_delete_policy_version(policy_arn, policy_to_remove)
 
-    if response["ResponseMetadata"]["HTTPStatusCode"] == 200:
-        
-        return policy_to_remove["VersionId"]
+    status_code = response["ResponseMetadata"]["HTTPStatusCode"]
+
+    if status_code == 200:
+        return policy_to_remove
 
     return False
 
@@ -65,13 +68,9 @@ def format_iam_policy_arn(aws_account):
     return "arn:aws:iam::" + aws_account + ":role/SDP_NameResolver"
 
 class Aws:
-    def __init__(self, client_type, profile=None, region=None):
+    def __init__(self, client_type, profile="default", region=None):
 
-        if profile is not None:
-            self.profile = profile
-        else:
-            self.profile = "default"
-        
+        self.profile = profile
         self.region = region
         self.client_type = client_type
 
@@ -207,7 +206,7 @@ def main():
     response = aws.iam_list_attached_role_policies(ROLE_NAME)
 
     policy_with_space = False
-    list_of_added_aws_accounts = [] # List of all currently added AWS accounts are added to this list
+    list_of_added_aws_accounts = [] # Save list of all currently added AWS accounts
 
     # Iterate through the IAM policies attached to the role
     for policy in response["AttachedPolicies"]:
@@ -233,11 +232,11 @@ def main():
         else:
             print(f'Policy {policy["PolicyArn"]} has room ({policy_character_size-2} characters)')
             policy_with_space = True
-            policy_arn_with_space = policy
+            policy_with_space = policy
             policy_document = response["PolicyVersion"]["Document"]
 
     if policy_with_space:
-        print(f'Continuing with policy {policy_arn_with_space["PolicyName"]}')
+        print(f'Continuing with policy {policy_with_space["PolicyName"]}')
         
         aws_account_added = False
         for aws_account in new_aws_accounts:
@@ -254,11 +253,11 @@ def main():
         if aws_account_added:
 
             
-            result = remove_oldest_policy_version(aws, policy_arn_with_space["PolicyArn"])
+            result = remove_oldest_policy_version(aws, policy_with_space["PolicyArn"])
             if result:
                 print(f'Policy version {result} was removed')
 
-            if aws.iam_create_policy_version(policy_arn_with_space["PolicyArn"], policy_document):
+            if aws.iam_create_policy_version(policy_with_space["PolicyArn"], policy_document):
                 print("SUCCESS: Policy updated with new AWS account(s)")
             else:
                 exit()
